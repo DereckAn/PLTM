@@ -2,8 +2,9 @@
 ## Aplicación de Navegación por Teclado (Homerow-like)
 
 ### Stack Tecnológico
-- **Frontend**: Svelte 5 + TailwindCSS 4 + TypeScript
+- **Frontend**: Svelte 5 + TailwindCSS + TypeScript
 - **Backend/Core**: Rust + Tauri 2.x
+- **Overlay Renderer**: Nativo por OS (macOS CoreGraphics/Metal; Windows Direct2D/DirectWrite; Linux Cairo/Pango/Wayland surfaces)
 - **Package Manager**: Bun
 - **Testing**: Vitest + Rust testing framework
 - **CI/CD**: GitHub Actions
@@ -16,8 +17,8 @@
 ┌─────────────────────────────────────────────────────────────┐
 │                     PRESENTATION LAYER                       │
 │  ┌────────────────────────────────────────────────────────┐ │
-│  │           Svelte UI Components (Overlay)                │ │
-│  │  • HintOverlay  • SettingsPanel  • PermissionPrompt   │ │
+│  │  Native Overlay Renderer (per-OS) + Svelte Settings     │ │
+│  │  • HintLayer (CG/Metal/D2D/Cairo) • SettingsPanel     │ │
 │  └────────────────────────────────────────────────────────┘ │
 └─────────────────────────────────────────────────────────────┘
                               ▼
@@ -42,10 +43,12 @@
 └─────────────────────────────────────────────────────────────┘
                               ▼
 ┌─────────────────────────────────────────────────────────────┐
-│                    PLATFORM LAYER (macOS)                    │
+│               PLATFORM LAYER (macOS/Win/Linux)              │
 │  ┌────────────────────────────────────────────────────────┐ │
-│  │              Native FFI Bindings (Rust)                 │ │
-│  │  • CoreGraphics  • Accessibility API  • Cocoa          │ │
+│  │        Native FFI Bindings (Rust por OS)                │ │
+│  │  • macOS: CoreGraphics/CoreAnimation/AX                 │ │
+│  │  • Windows: Direct2D/DirectWrite/UIA                    │ │
+│  │  • Linux: Cairo/Pango + AT-SPI2 (X11/Wayland)           │ │
 │  └────────────────────────────────────────────────────────┘ │
 └─────────────────────────────────────────────────────────────┘
 ```
@@ -59,10 +62,6 @@ keyboard-nav-app/
 ├── src/                                    # Frontend (Svelte)
 │   ├── lib/
 │   │   ├── components/
-│   │   │   ├── overlay/
-│   │   │   │   ├── HintOverlay.svelte
-│   │   │   │   ├── HintLabel.svelte
-│   │   │   │   └── OverlayContainer.svelte
 │   │   │   ├── settings/
 │   │   │   │   ├── SettingsPanel.svelte
 │   │   │   │   ├── HotkeyConfig.svelte
@@ -112,9 +111,14 @@ keyboard-nav-app/
 │   │   │   │   ├── mod.rs
 │   │   │   │   ├── accessibility.rs
 │   │   │   │   ├── window.rs
+│   │   │   │   ├── overlay.rs              # Render nativo (CG/Metal)
 │   │   │   │   └── events.rs
-│   │   │   └── windows/                    # Future support
-│   │   │       └── mod.rs
+│   │   │   ├── windows/                    # Future support
+│   │   │   │   ├── mod.rs
+│   │   │   │   └── overlay.rs              # Render nativo (Direct2D/DirectWrite)
+│   │   │   └── linux/                      # Future support
+│   │   │       ├── mod.rs
+│   │   │       └── overlay.rs              # Render nativo (Cairo/Pango/Wayland)
 │   │   ├── state/                          # Global State
 │   │   │   ├── mod.rs
 │   │   │   └── app_state.rs
@@ -259,38 +263,44 @@ impl ClickService {
 }
 ```
 
-### 3.5 Window Manager
+### 3.5 Window Manager (Render nativo por OS)
 ```rust
 // src-tauri/src/services/window_manager.rs
 
-pub struct WindowManager {
-    overlay_window: Option<Window>,
+pub trait OverlayRenderer {
+    fn init(&mut self) -> Result<()>;
+    fn draw_hints(&self, hints: &[Hint]) -> Result<()>;
+    fn show(&self) -> Result<()>;
+    fn hide(&self) -> Result<()>;
+}
+
+#[cfg(target_os = "macos")]
+type DefaultRenderer = crate::platform::macos::overlay::MacOverlayRenderer;
+#[cfg(target_os = "windows")]
+type DefaultRenderer = crate::platform::windows::overlay::WinOverlayRenderer;
+#[cfg(target_os = "linux")]
+type DefaultRenderer = crate::platform::linux::overlay::LinuxOverlayRenderer;
+
+pub struct WindowManager<R: OverlayRenderer = DefaultRenderer> {
+    renderer: R,
 }
 
 impl WindowManager {
-    /// Crea ventana overlay transparente
-    pub fn create_overlay(&mut self, app: &AppHandle) -> Result<Window> {
-        WindowBuilder::new(app, "overlay", WindowUrl::App("index.html".into()))
-            .transparent(true)
-            .decorations(false)
-            .always_on_top(true)
-            .skip_taskbar(true)
-            .fullscreen(true)
-            .build()
+    pub fn new() -> Result<Self> {
+        let mut renderer = DefaultRenderer::new()?;
+        renderer.init()?;
+        Ok(Self { renderer })
     }
-    
-    /// Muestra el overlay con hints
-    pub async fn show_overlay(&self, hints: Vec<Hint>) -> Result<()> {
-        self.overlay_window
-            .as_ref()
-            .ok_or(Error::NoOverlay)?
-            .emit("show-hints", hints)?;
-        self.overlay_window.as_ref().unwrap().show()
+
+    /// Dibuja y muestra hints con render nativo (sin WebView).
+    pub async fn show_overlay(&mut self, hints: &[Hint]) -> Result<()> {
+        self.renderer.draw_hints(hints)?;
+        self.renderer.show()
     }
-    
-    /// Oculta el overlay
-    pub async fn hide_overlay(&self) -> Result<()> {
-        self.overlay_window.as_ref().unwrap().hide()
+
+    /// Oculta overlay y limpia buffers si aplica.
+    pub async fn hide_overlay(&mut self) -> Result<()> {
+        self.renderer.hide()
     }
 }
 ```
@@ -594,107 +604,66 @@ export class TauriCommands {
 
 ### 7.3 Components
 
+> El overlay de hints ahora se renderiza nativamente (CoreGraphics/Metal, Direct2D, Cairo/Wayland). Svelte se usa solo para paneles de configuración y permisos.
+
 ```svelte
-<!-- src/lib/components/overlay/HintOverlay.svelte -->
+<!-- src/lib/components/settings/SettingsPanel.svelte -->
 
 <script lang="ts">
-  import { filteredHints, inputSequence } from '$lib/stores/hints';
-  import { appMode } from '$lib/stores/app-state';
-  import HintLabel from './HintLabel.svelte';
+  import { hasPermissions } from '$lib/stores/app-state';
   import { TauriCommands } from '$lib/services/tauri-commands';
-  import { listen } from '@tauri-apps/api/event';
   import { onMount } from 'svelte';
-  
-  let mounted = false;
-  
-  onMount(() => {
-    mounted = true;
-    
-    // Escuchar eventos desde Rust
-    const unlisten = listen('show-hints', (event) => {
-      filteredHints.set(event.payload);
-    });
-    
-    // Manejar input de teclado
-    window.addEventListener('keydown', handleKeyPress);
-    
-    return () => {
-      unlisten.then(fn => fn());
-      window.removeEventListener('keydown', handleKeyPress);
-    };
+
+  let activate = 'Cmd+J';
+  let scanDepth = 8;
+  let maxHints = 400;
+
+  onMount(async () => {
+    hasPermissions.set(await TauriCommands.checkPermissions());
   });
-  
-  async function handleKeyPress(e: KeyboardEvent) {
-    if ($appMode !== 'navigation') return;
-    
-    if (e.key === 'Escape') {
-      appMode.set('idle');
-      inputSequence.set('');
-      return;
-    }
-    
-    if (e.key.length === 1 && e.key.match(/[a-z]/i)) {
-      const newSequence = $inputSequence + e.key.toLowerCase();
-      inputSequence.set(newSequence);
-      
-      // Buscar hint exacto
-      const match = $filteredHints.find(h => h.label === newSequence);
-      if (match) {
-        await TauriCommands.performClick(
-          match.position.x,
-          match.position.y
-        );
-        appMode.set('idle');
-        inputSequence.set('');
-      }
-    }
-    
-    if (e.key === 'Backspace') {
-      inputSequence.update(seq => seq.slice(0, -1));
-    }
+
+  async function requestAccess() {
+    await TauriCommands.requestPermissions();
+    hasPermissions.set(await TauriCommands.checkPermissions());
+  }
+
+  async function save() {
+    await TauriCommands.registerHotkey(activate);
+    // TODO: Persist config via Tauri command
   }
 </script>
 
-{#if $appMode === 'navigation' && mounted}
-  <div class="fixed inset-0 pointer-events-none z-50">
-    {#each $filteredHints as hint (hint.id)}
-      <HintLabel {hint} active={hint.label.startsWith($inputSequence)} />
-    {/each}
-  </div>
-{/if}
-```
+<section class="space-y-4">
+  <header class="flex items-center gap-3">
+    <h1 class="text-xl font-semibold">PLTM</h1>
+    {#if $hasPermissions}
+      <span class="px-2 py-1 rounded bg-green-100 text-green-700 text-xs">Permisos OK</span>
+    {:else}
+      <button class="px-2 py-1 text-xs rounded bg-amber-100 text-amber-800" on:click={requestAccess}>
+        Otorgar permisos
+      </button>
+    {/if}
+  </header>
 
-```svelte
-<!-- src/lib/components/overlay/HintLabel.svelte -->
+  <label class="flex items-center gap-2">
+    <span class="w-36 text-sm font-medium">Hotkey principal</span>
+    <input bind:value={activate} class="border px-2 py-1 rounded w-32" />
+  </label>
 
-<script lang="ts">
-  import type { Hint } from '$lib/types';
-  
-  export let hint: Hint;
-  export let active: boolean = false;
-</script>
+  <label class="flex items-center gap-2">
+    <span class="w-36 text-sm font-medium">Profundidad scan</span>
+    <input type="number" min="1" max="15" bind:value={scanDepth} class="border px-2 py-1 rounded w-20" />
+  </label>
 
-<div
-  class="absolute pointer-events-none transition-all duration-150"
-  style="left: {hint.position.x}px; top: {hint.position.y}px;"
-  class:opacity-100={active}
-  class:opacity-50={!active}
->
-  <div
-    class="
-      px-2 py-1 
-      bg-yellow-400 
-      text-black 
-      font-mono font-bold text-sm
-      rounded shadow-lg
-      border-2 border-yellow-600
-    "
-    class:ring-2={active}
-    class:ring-yellow-600={active}
-  >
-    {hint.label}
-  </div>
-</div>
+  <label class="flex items-center gap-2">
+    <span class="w-36 text-sm font-medium">Máx. hints</span>
+    <input type="number" min="50" max="1000" bind:value={maxHints} class="border px-2 py-1 rounded w-24" />
+  </label>
+
+  <button class="px-3 py-2 rounded bg-blue-600 text-white" on:click={save}>
+    Guardar
+  </button>
+</section>
 ```
 
 ---
@@ -982,12 +951,12 @@ pub fn validate_coordinates(x: f64, y: f64) -> Result<()> {
 - [ ] Sistema de scanning de elementos UI
 - [ ] HotkeyService con registro global de atajos
 - [ ] HintGenerator con algoritmo eficiente
-- [ ] WindowManager para overlay transparente
+- [ ] WindowManager + renderer nativo por OS (sin WebView)
 - [ ] ClickService para simulación de clicks
 
 ### Fase 3: UI/UX (2-3 semanas)
-- [ ] Componentes Svelte para overlay
-- [ ] Sistema de hints visuales con animaciones
+- [ ] Componentes Svelte para settings/permisos (overlay nativo)
+- [ ] Sistema de hints visuales con animaciones en renderer nativo
 - [ ] Panel de configuración
 - [ ] Temas y personalización visual
 - [ ] Feedback visual (highlights, efectos)
@@ -1184,212 +1153,84 @@ mod tests {
 }
 ```
 
-### 16.3 Overlay Window Configuration
+### 16.3 Overlay Window Configuration (render nativo)
 
 ```rust
-// src-tauri/src/services/window_manager.rs
+// src-tauri/src/platform/macos/overlay.rs (similar para win/linux)
 
-use tauri::{Manager, PhysicalPosition, PhysicalSize, Window, WindowBuilder};
-use tauri::window::WindowLevel;
+pub struct MacOverlayRenderer {
+    window: StrongPtr,          // NSWindow transparente, fullscreen
+    text_layer: StrongPtr,      // CALayer que contiene CATextLayers
+    glyph_cache: GlyphAtlas,    // Cache de glyphs para reusar shapes
+}
 
-impl WindowManager {
-    pub async fn create_overlay(&mut self, app: &AppHandle) -> Result<Window> {
-        // Obtener dimensiones de la pantalla principal
-        let screen = app
-            .primary_monitor()?
-            .ok_or(AppError::NoDisplay)?;
-        
-        let size = screen.size();
-        
-        let window = WindowBuilder::new(
-            app,
-            "overlay",
-            tauri::WindowUrl::App("index.html".into())
-        )
-        .title("KeyboardNav Overlay")
-        .inner_size(size.width as f64, size.height as f64)
-        .position(0.0, 0.0)
-        .transparent(true)
-        .decorations(false)
-        .always_on_top(true)
-        .skip_taskbar(true)
-        .visible(false)
-        .resizable(false)
-        .closable(false)
-        .minimizable(false)
-        .maximizable(false)
-        .focused(false)
-        .accept_first_mouse(false)
-        // Nivel de ventana muy alto
-        .window_level(WindowLevel::ScreenSaver)
-        .build()?;
-        
-        // Hacer que la ventana ignore eventos de mouse
-        #[cfg(target_os = "macos")]
-        {
-            use cocoa::appkit::{NSWindow, NSWindowCollectionBehavior};
-            use cocoa::base::id;
-            
-            let ns_window = window.ns_window()? as id;
-            unsafe {
-                ns_window.setIgnoresMouseEvents_(true);
-                
-                // Configurar para que aparezca en todos los espacios
-                let behavior = NSWindowCollectionBehavior::NSWindowCollectionBehaviorCanJoinAllSpaces
-                    | NSWindowCollectionBehavior::NSWindowCollectionBehaviorStationary
-                    | NSWindowCollectionBehavior::NSWindowCollectionBehaviorIgnoresCycle;
-                    
-                ns_window.setCollectionBehavior_(behavior);
-            }
+impl MacOverlayRenderer {
+    pub fn new() -> Result<Self> { /* crear window borderless + ignoresMouseEvents */ }
+
+    pub fn init(&mut self) -> Result<()> {
+        unsafe {
+            let ns_window: id = self.window.as_ref();
+            ns_window.setLevel_(NSWindowLevel::NSTornOffMenuWindowLevel);
+            ns_window.setOpaque_(NO);
+            ns_window.setBackgroundColor_(NSColor::clearColor());
+            ns_window.setIgnoresMouseEvents_(YES);
+            ns_window.setCollectionBehavior_(
+                NSWindowCollectionBehaviorCanJoinAllSpaces
+                    | NSWindowCollectionBehaviorStationary
+                    | NSWindowCollectionBehaviorIgnoresCycle,
+            );
         }
-        
-        self.overlay_window = Some(window.clone());
-        Ok(window)
-    }
-    
-    pub async fn update_hints(&self, hints: Vec<Hint>) -> Result<()> {
-        let window = self.overlay_window
-            .as_ref()
-            .ok_or(AppError::WindowError("No overlay window".into()))?;
-            
-        window.emit("hints-updated", hints)?;
         Ok(())
+    }
+
+    pub fn draw_hints(&self, hints: &[Hint]) -> Result<()> {
+        // Usar un CATextLayer por hint o un CALayer por batch con glyph atlas.
+        // Cada hint se pinta con posiciones absolutas y se reusa caché de atributos de texto.
     }
 }
 ```
 
-### 16.4 Keyboard Input Handler
+- **Windows**: overlay con layered window (`WS_EX_LAYERED | WS_EX_TRANSPARENT`) y Direct2D/DirectWrite para texto con cache de text layouts; alpha pre-multiplicado y `UpdateLayeredWindow` para batch.
+- **Linux**: overlay por X11 (`override_redirect`, XShape para click-through) o Wayland layer-shell si está disponible; render con Cairo/Pango o Skia; en Wayland usar región de input vacía.
+- **Rendimiento**: evitar WebView, precalcular glyphs, batch de draw calls, doble buffer para evitar flicker, y throttling a 60 fps máx (normalmente estático).
 
-```typescript
-// src/lib/services/keyboard-handler.ts
+### 16.4 Keyboard Input Handler (nativo, sin WebView)
 
-import { get } from 'svelte/store';
-import { inputSequence, filteredHints } from '$lib/stores/hints';
-import { appMode } from '$lib/stores/app-state';
-import { TauriCommands } from './tauri-commands';
+```rust
+// src-tauri/src/services/hotkey_service.rs (modo navegación activo)
 
-export class KeyboardHandler {
-  private static instance: KeyboardHandler;
-  private buffer: string = '';
-  private lastInputTime: number = 0;
-  private readonly bufferTimeout = 1000; // 1 segundo
-  
-  private constructor() {
-    this.setupListeners();
-  }
-  
-  static getInstance(): KeyboardHandler {
-    if (!KeyboardHandler.instance) {
-      KeyboardHandler.instance = new KeyboardHandler();
-    }
-    return KeyboardHandler.instance;
-  }
-  
-  private setupListeners(): void {
-    window.addEventListener('keydown', this.handleKeyDown.bind(this));
-  }
-  
-  private handleKeyDown(event: KeyboardEvent): void {
-    const mode = get(appMode);
-    
-    if (mode !== 'navigation') {
-      return;
-    }
-    
-    // Prevenir comportamiento por defecto
-    event.preventDefault();
-    event.stopPropagation();
-    
-    // Manejar teclas especiales
-    if (event.key === 'Escape') {
-      this.reset();
-      appMode.set('idle');
-      return;
-    }
-    
-    if (event.key === 'Backspace') {
-      this.buffer = this.buffer.slice(0, -1);
-      inputSequence.set(this.buffer);
-      return;
-    }
-    
-    // Solo aceptar letras del home row
-    const validChars = /^[asdfghjkl]$/i;
-    if (!validChars.test(event.key)) {
-      return;
-    }
-    
-    // Resetear buffer si pasó mucho tiempo
-    const now = Date.now();
-    if (now - this.lastInputTime > this.bufferTimeout) {
-      this.buffer = '';
-    }
-    this.lastInputTime = now;
-    
-    // Agregar carácter al buffer
-    this.buffer += event.key.toLowerCase();
-    inputSequence.set(this.buffer);
-    
-    // Buscar match exacto
-    const hints = get(filteredHints);
-    const match = hints.find(h => h.label === this.buffer);
-    
-    if (match) {
-      this.executeHint(match);
-    } else if (hints.length === 0) {
-      // No hay matches posibles, resetear
-      this.reset();
-    }
-  }
-  
-  private async executeHint(hint: Hint): Promise<void> {
-    try {
-      // Agregar feedback visual
-      this.showClickFeedback(hint.position);
-      
-      // Ejecutar click
-      await TauriCommands.performClick(
-        hint.position.x + hint.element.position.width / 2,
-        hint.position.y + hint.element.position.height / 2
-      );
-      
-      // Resetear y cerrar overlay
-      this.reset();
-      appMode.set('idle');
-    } catch (error) {
-      console.error('Failed to execute hint:', error);
-    }
-  }
-  
-  private showClickFeedback(position: Position): void {
-    // Crear elemento de feedback temporal
-    const feedback = document.createElement('div');
-    feedback.className = 'click-feedback';
-    feedback.style.cssText = `
-      position: fixed;
-      left: ${position.x}px;
-      top: ${position.y}px;
-      width: 20px;
-      height: 20px;
-      border: 2px solid #3b82f6;
-      border-radius: 50%;
-      pointer-events: none;
-      z-index: 10000;
-      animation: ping 0.5s cubic-bezier(0, 0, 0.2, 1);
-    `;
-    
-    document.body.appendChild(feedback);
-    setTimeout(() => feedback.remove(), 500);
-  }
-  
-  private reset(): void {
-    this.buffer = '';
-    inputSequence.set('');
-  }
+pub struct NavigationInput {
+    buffer: String,
+    last_keystroke: Instant,
+    timeout_ms: u64,
 }
 
-// Inicializar en el arranque
-export const keyboardHandler = KeyboardHandler.getInstance();
+impl NavigationInput {
+    pub fn new() -> Self {
+        Self { buffer: String::new(), last_keystroke: Instant::now(), timeout_ms: 1000 }
+    }
+
+    pub fn handle_key(&mut self, key: char) -> Option<String> {
+        let now = Instant::now();
+        if now.duration_since(self.last_keystroke).as_millis() > self.timeout_ms as u128 {
+            self.buffer.clear();
+        }
+        self.last_keystroke = now;
+
+        let valid = "asdfghjkl";
+        if !valid.contains(key) {
+            return None;
+        }
+
+        self.buffer.push(key);
+        Some(self.buffer.clone())
+    }
+}
+
+// macOS: CGEventTap en el overlay, nivel Session, captura keyDown y filtra modifiers.
+// Windows: WH_KEYBOARD_LL hook filtrando vkCodes; evitar interferir con IME.
+// Linux: evdev/raw XInput o key snooping vía compositor (Wayland limita; fallback a listener de atajos globales).
+// El buffer se compara contra hints en Rust y dispara perform_click directamente sin pasar por JS.
 ```
 
 ### 16.5 Smart Element Filtering
@@ -1565,6 +1406,23 @@ impl AppConfig {
     }
 }
 ```
+
+### 16.7 Pipeline de detección y asignación de hints (alta performance)
+
+- **Escaneo incremental**: suscribirse a `AXObserver` (macOS), UIA `StructureChangedEvent` (Windows) y AT-SPI `Object:ChildrenChanged` (Linux) para evitar scans completos; al activarse, hacer un diff sobre el subárbol de la app enfocada.
+- **BFS con límites adaptativos**: recorrer por anchura con `scan_depth` dinámico (más profundo solo para contenedores visibles y grandes); abortar ramas ocultas o fuera de viewport.
+- **Hash estable por elemento**: `element_key = hash(role, title, frame, app_pid, path_en_arbol)` para reusar hints y evitar parpadeos; mantener un `HashMap<element_key, Hint>` y solo regenerar los nuevos.
+- **Normalización de coordenadas**: convertir a coordenadas absolutas de pantalla con awareness multi-monitor y escalas (retina/HiDPI); descartar elementos con área < 10x10 px o fuera de screen bounds.
+- **Filtrado corporativo**: blacklist configurable de apps/window titles; roles clicables whitelisted; score por visibilidad (alpha/hidden), tamaño y proximidad al centro de la ventana activa.
+- **Asignación de labels**: ordenar por posición (top->bottom, left->right) para estabilidad; mapear con generador base-N del home row; mantener hints estables entre scans para muscle memory.
+
+### 16.8 Estrategia de renderizado de hints (algoritmo)
+
+- **Batch de texto con atlas**: pre-rasterizar el set de chars del home row en un atlas; cada hint se pinta como quad con UVs (Metal/Direct2D/Cairo) reduciendo draw calls.
+- **Layout directo**: posiciones absolutas ya calculadas en Rust; sin DOM ni layout engine. Un buffer de comandos (`Vec<DrawCmd>`) se envía al renderer y se pinta de una sola pasada.
+- **Double buffering**: dos layers/buffers para evitar flicker; se intercambian en `CATransaction` (macOS), `BeginDraw/EndDraw` (D2D), o surface swap (Cairo/Wayland).
+- **Ciclo de vida corto**: overlay invisible hasta que hay hints; cuando está visible no repinta a más de 60 fps y solo si cambian los hints o se solicita highlight.
+- **Accesos de entrada**: ventana click-through y focusless; teclado manejado en Rust (hotkey) y Svelte solo para configuración.
 
 ---
 
