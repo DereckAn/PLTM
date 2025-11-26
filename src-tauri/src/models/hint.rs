@@ -1,3 +1,6 @@
+use serde::{Deserialize, Serialize};
+use crate::models::element::UIElement;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Hint {
     pub id: String,

@@ -1,7 +1,12 @@
+use tauri::State;
+
+use crate::models::UIElement;
+use crate::state::AppState;
+
 #[tauri::command]
 pub async fn scan_elements(state: State<'_, AppState>) -> Result<Vec<UIElement>, String> {
     state
-        .accessibility_serivce
+        .accessibility_service
         .scan_clickable_elements()
         .await
         .map_err(|e| e.to_string())

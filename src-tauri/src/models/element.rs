@@ -1,4 +1,6 @@
-#[derive(Debug, CClone, Serialize, Deserialize)]
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UIElement {
     pub id: String,
     pub role: AccessibilityRole,

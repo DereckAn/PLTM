@@ -1,17 +1,20 @@
-use crate::models::elemtent::UIElement;
+use crate::models::element::UIElement;
 use crate::platform::macos::accessibility;
+use crate::Result;
 
 pub struct AccessibilityService {
     enabled: bool,
-    cache: ElementCache,
 }
 
 impl AccessibilityService {
-    pub fn new() -> Self {}
+    pub fn new() -> Self {
+        Self { enabled: false }
+    }
 
-    /// Escanea todos los elementos clickeables en la pantalla 
+    /// Escanea todos los elementos clickeables en la pantalla
     pub async fn scan_clickable_elements(&self) -> Result<Vec<UIElement>> {
-        // 1. Verificar permisos 
+        Ok(Vec::new())
+        // 1. Verificar permisos
         // 2. Obtener ventana activa
         // 3. Recorrer arbol de accessibilidad
         // 4. Filtrar elementos clickeables

@@ -1,16 +1,17 @@
+use tauri::{AppHandle, State};
+
+use crate::models::Hint;
+use crate::state::AppState;
+
 #[tauri::command]
 pub async fn show_hints(
     hints: Vec<Hint>,
-    app: Apphandle,
+    _app: AppHandle,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
-    state
-        .window_manager
-        .lock()
-        .await
-        .show_overlay(hints)
-        .await
-        .map_err(|e| e.to_string())
+    let mut wm = state.window_manager.lock().await;
+
+    wm.show_overlay(&hints).await.map_err(|e| e.to_string())
 }
 
 #[tauri::command]

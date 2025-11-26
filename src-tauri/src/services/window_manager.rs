@@ -1,4 +1,9 @@
+use crate::models::hint::Hint;
+use crate::Result;
 pub trait OverlayRenderer {
+    fn new() -> Result<Self>
+    where
+        Self: Sized;
     fn init(&mut self) -> Result<()>;
     fn draw_hints(&self, hints: &[Hint]) -> Result<()>;
     fn show(&self) -> Result<()>;
