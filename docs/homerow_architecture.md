@@ -929,11 +929,12 @@ pub fn validate_coordinates(x: f64, y: f64) -> Result<()> {
 
 ## 14. Performance Optimizations
 
-1. **Cache de elementos**: No escanear en cada keystroke
-2. **Debounce en scanning**: Evitar escaneos excesivos
-3. **Lazy loading de hints**: Solo renderizar hints visibles
-4. **Worker threads**: Scanning en thread separado
-5. **Spatial indexing**: R-tree para búsqueda rápida de elementos
+1. **Spatial indexing (crítico)**: R-tree (`rstar`) para queries O(log n) de elementos visibles y detección rápida de overlaps.
+2. **SIMD**: Filtrado masivo de coordenadas con `std::simd` para 4-8x throughput en checks de bounds/visibilidad.
+3. **Memory pool**: Reusar `UIElement`/`Hint` en hot path para evitar allocs y churn del heap.
+4. **Pipeline async sin bloqueos**: Escaneo, generación de hints y render en stages paralelos; comunicación por canales lock-free.
+5. **Render GPU-first**: Metal (macOS), Direct2D/DirectComposition (Win), Cairo/Skia/Vulkan (Linux) con atlas de glyphs y batch draw.
+6. **Profiles release agresivos**: `lto = "fat"`, `codegen-units = 1`, `panic = "abort"`, feature flags `optimized`/`debug`.
 
 ---
 
@@ -953,6 +954,8 @@ pub fn validate_coordinates(x: f64, y: f64) -> Result<()> {
 - [ ] HintGenerator con algoritmo eficiente
 - [ ] WindowManager + renderer nativo por OS (sin WebView)
 - [ ] ClickService para simulación de clicks
+- [ ] Spatial index (R-tree) + filtro SIMD + memory pool en hot path
+- [ ] Pipeline async sin bloqueos (scan -> hints -> render)
 
 ### Fase 3: UI/UX (2-3 semanas)
 - [ ] Componentes Svelte para settings/permisos (overlay nativo)
@@ -1424,6 +1427,69 @@ impl AppConfig {
 - **Ciclo de vida corto**: overlay invisible hasta que hay hints; cuando está visible no repinta a más de 60 fps y solo si cambian los hints o se solicita highlight.
 - **Accesos de entrada**: ventana click-through y focusless; teclado manejado en Rust (hotkey) y Svelte solo para configuración.
 
+### 16.9 Optimización extrema (spatial, SIMD, pooling, pipeline)
+
+```rust
+// Spatial index con R-tree
+use rstar::{RTree, AABB};
+
+pub struct SpatialIndex {
+    tree: RTree<IndexedElement>,
+}
+
+struct IndexedElement {
+    bounds: AABB<[f64; 2]>,
+    element: UIElement,
+}
+
+impl SpatialIndex {
+    pub fn query_region(&self, rect: Rect) -> Vec<&UIElement> {
+        self.tree
+            .locate_in_envelope(&rect.to_aabb())
+            .map(|e| &e.element)
+            .collect()
+    }
+}
+
+// SIMD para filtrar en pantalla
+use std::simd::*;
+pub fn filter_on_screen_simd(elements: &[UIElement], screen: Rect) -> Vec<UIElement> {
+    // Procesar 4-8 elementos por iteración; caer a escalar para remanente.
+    // Reducir comparaciones y branches en hot path.
+    todo!()
+}
+
+// Memory pool para evitar allocs
+pub struct ElementPool {
+    pool: Vec<UIElement>,
+    in_use: usize,
+}
+impl ElementPool {
+    pub fn take(&mut self) -> &mut UIElement {
+        if self.in_use == self.pool.len() {
+            self.pool.push(UIElement::default());
+        }
+        let idx = self.in_use;
+        self.in_use += 1;
+        &mut self.pool[idx]
+    }
+    pub fn reset(&mut self) { self.in_use = 0; }
+}
+
+// Pipeline no bloqueante (scan -> hints -> render)
+pub struct NonBlockingPipeline {
+    scan_tx: mpsc::Sender<ScanRequest>,
+    hint_tx: mpsc::Sender<Vec<UIElement>>,
+    render_tx: mpsc::Sender<Vec<Hint>>,
+}
+// Cada etapa en thread dedicado, sin esperas entre stages.
+
+// Plataforma
+// macOS: Metal compute para posicionamiento/alpha y CALayer para compose.
+// Windows: Direct2D + DirectComposition con layered window para batch updates.
+// Linux: Cairo/Pango; fallback a Skia/Vulkan si Cairo no da throughput.
+```
+
 ---
 
 ## 17. Performance Monitoring
@@ -1468,6 +1534,13 @@ perf.start("scan_elements");
 let elements = accessibility_service.scan_clickable_elements().await?;
 perf.end("scan_elements");
 ```
+
+### 17.1 Benchmarks y profiling
+
+- **Criterion**: `benches/hint_generation.rs` para medir generación base-N y filtrado; targets: 100 hints < 5ms, 500 hints < 10ms.
+- **puffin/optick** (feature `profiling`): marcar `scan_elements`, `filter_on_screen`, `render_hints`.
+- **Objetivos actualizados**: scan < 50ms (incremental), hints < 5ms, render < 16ms (60fps), memoria < 30MB, latencia de click < 200ms.
+- **Cargo profiles**: `lto = "fat"`, `codegen-units = 1`, `opt-level = 3`, `panic = "abort"`, `strip = true`.
 
 ---
 
