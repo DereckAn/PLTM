@@ -1,10 +1,11 @@
 mod commands;
 mod error;
 mod models;
-mod platform;
+pub mod platform;
 mod services;
 mod state;
 
+use crate::commands::accessibility::get_focused_app_pid;
 use crate::commands::*;
 use crate::error::AppError;
 use crate::state::app_state::AppState;
@@ -39,6 +40,7 @@ pub fn run() {
             check_permissions,
             request_permissions,
             register_hotkey,
+            get_focused_app_pid,
             show_hints,
             perform_click
         ])
