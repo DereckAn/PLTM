@@ -3,6 +3,7 @@ use crate::platform::macos::accessibility;
 use crate::Result;
 
 pub struct AccessibilityService {
+    #[allow(dead_code)]
     enabled: bool,
 }
 

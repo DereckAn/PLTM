@@ -1,18 +1,39 @@
 mod commands;
+mod error;
 mod models;
 mod platform;
 mod services;
 mod state;
 
 use crate::commands::*;
+use crate::error::AppError;
 use crate::state::app_state::AppState;
 
-pub type Result<T> = std::result::Result<T, String>;
+use tracing_subscriber::EnvFilter;
+
+pub type Result<T> = std::result::Result<T, AppError>;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // Iniciar tracing con nivel info por defecto
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
+        )
+        .init();
+    tracing::info!("Starting Tauri application...");
+
+    let app_state = match AppState::new() {
+        Ok(state) => state,
+        Err(err) => {
+            tracing::error!("Failed to initialize AppState: {}", err);
+            panic!("AppState init failed: {}", err);
+        }
+    };
+
     tauri::Builder::default()
-        .manage(AppState::new())
+        .plugin(tauri_plugin_opener::init())
+        .manage(app_state)
         .invoke_handler(tauri::generate_handler![
             scan_elements,
             check_permissions,

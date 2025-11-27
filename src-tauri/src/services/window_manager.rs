@@ -6,7 +6,9 @@ pub trait OverlayRenderer {
         Self: Sized;
     fn init(&mut self) -> Result<()>;
     fn draw_hints(&self, hints: &[Hint]) -> Result<()>;
+    #[allow(dead_code)]
     fn show(&self) -> Result<()>;
+    #[allow(dead_code)]
     fn hide(&self) -> Result<()>;
 }
 
@@ -35,6 +37,7 @@ impl WindowManager {
     }
 
     /// Oculta overlay y limpia buffers si aplica.
+    #[allow(dead_code)]
     pub async fn hide_overlay(&mut self) -> Result<()> {
         self.renderer.hide()
     }

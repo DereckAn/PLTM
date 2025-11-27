@@ -941,8 +941,8 @@ pub fn validate_coordinates(x: f64, y: f64) -> Result<()> {
 ## 15. Roadmap de Implementación
 
 ### Fase 1: Foundation (2-3 semanas)
-- [ ] Setup proyecto Tauri + Svelte + Bun
-- [ ] Configurar TailwindCSS y estructura base
+- [x] Setup proyecto Tauri + Svelte + Bun
+- [x] Configurar TailwindCSS y estructura base
 - [ ] Implementar FFI bindings básicos para macOS Accessibility API
 - [ ] Crear sistema de permisos y guards
 - [ ] Implementar logging y error handling base

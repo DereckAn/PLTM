@@ -28,4 +28,6 @@ core-foundation = "0.10.1"
 objc2 = "0.6.3"
 global-hotkey = "0.7.0"
 tokio = { version = "1", features = ["sync"] }
-
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+thiserror = "2.0.17"

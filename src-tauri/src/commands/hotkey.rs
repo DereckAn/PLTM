@@ -1,12 +1,11 @@
 use tauri::State;
 
 use crate::state::AppState;
+use crate::Result;
 
 #[tauri::command]
-pub async fn register_hotkey(key_combo: String, state: State<'_, AppState>) -> Result<(), String> {
+pub async fn register_hotkey(key_combo: String, state: State<'_, AppState>) -> Result<()> {
     let mut hotkeys = state.hotkey_service.lock().await;
 
-    hotkeys
-        .register_activation_hotkey(&key_combo)
-        .map_err(|e| e.to_string())
+    hotkeys.register_activation_hotkey(&key_combo)
 }

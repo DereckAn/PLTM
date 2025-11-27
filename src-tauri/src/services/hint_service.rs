@@ -1,9 +1,11 @@
 use crate::Result;
 
+#[allow(dead_code)]
 pub struct HintGenerator {
     charset: Vec<char>,
 }
 
+#[allow(dead_code)]
 impl HintGenerator {
     pub fn new() -> Self {
         Self {
