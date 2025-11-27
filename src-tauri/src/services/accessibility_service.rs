@@ -1,98 +1,139 @@
 use crate::error::AppError;
 use crate::models::UIElement;
-use crate::platform::macos::accessibility;
+use crate::platform::macos::accessibility::{
+    self, get_active_window, get_element_rect, get_element_role, get_element_title,
+    is_clickable_role, traverse_accessibility_tree, AXUIElementRef,
+};
 use crate::Result;
+use core_foundation::base::CFRelease;
+use std::ffi::c_void;
 
-pub struct AccessibilityService;
+const DEFAULT_MAX_DEPTH: usize = 10;
+const DEFAULT_MAX_ELEMENTS: usize = 500;
+
+pub struct AccessibilityService {
+    max_depth: usize,
+    max_elements: usize,
+}
 
 impl AccessibilityService {
     pub fn new() -> Self {
-        tracing::info!("Initializing AccessibilityService");
-        Self
+        tracing::debug!("Initializing AccessibilityService");
+        Self {
+            max_depth: DEFAULT_MAX_DEPTH,
+            max_elements: DEFAULT_MAX_ELEMENTS,
+        }
     }
 
-    /// Verifica si la aplicación tiene permisos de accesibilidad
-    pub fn check_permissions(&self) -> bool {
-        tracing::info!("AccessibilityService checking permissions");
-
-        let has_perms = accessibility::has_accessibility_permissions();
-
-        if has_perms {
-            tracing::info!("Accessibility permissions are granted");
-        } else {
-            tracing::warn!("Accessibility permissions are NOT granted");
+    pub fn with_config(max_depth: usize, max_elements: usize) -> Self {
+        tracing::debug!(
+            "Initializing AccessibilityService (max_depth={}, max_elements={})",
+            max_depth,
+            max_elements
+        );
+        Self {
+            max_depth,
+            max_elements,
         }
+    }
 
+    pub fn check_permissions(&self) -> bool {
+        tracing::trace!("Checking permissions");
+        let has_perms = accessibility::has_accessibility_permissions();
+        if !has_perms {
+            tracing::warn!("Accessibility permissions NOT granted");
+        }
         has_perms
     }
 
-    /// Solicita permisos de accesibilidad al usuario
     pub fn request_permissions(&self) -> Result<()> {
-        tracing::info!("AccessibilityService requesting permissions");
-
-        match accessibility::request_permissions() {
-            Ok(_) => {
-                tracing::info!("Permission request completed successfully");
-                Ok(())
-            }
-            Err(e) => {
-                tracing::error!("Failed to request accessibility permissions: {}", e);
-                Err(e)
-            }
-        }
+        tracing::info!("Requesting permissions");
+        accessibility::request_permissions()
     }
 
-    /// Obtiene el PID de la aplicación actualmente enfocada
     pub fn get_focused_application_pid(&self) -> Result<Option<i32>> {
-        tracing::info!("AccessibilityService getting focused application PID");
-
-        match accessibility::get_focused_application() {
-            Ok(Some(pid)) => {
-                tracing::info!("Found focused application with PID: {}", pid);
-                Ok(Some(pid))
-            }
-            Ok(None) => {
-                tracing::warn!("No focused application found");
-                Ok(None)
-            }
-            Err(e) => {
-                tracing::error!("Failed to get focused application: {}", e);
-                Err(e)
-            }
-        }
+        tracing::trace!("Getting focused application PID");
+        accessibility::get_focused_application()
     }
 
-    /// Verifica permisos y retorna error si no están disponibles
-    /// Guard function para usar al inicio de operaciones que requieren accesibilidad
     pub fn ensure_permissions(&self) -> Result<()> {
-        tracing::info!("AccessibilityService ensuring permissions");
-
         if self.check_permissions() {
-            tracing::info!("Permissions verified successfully");
             Ok(())
         } else {
-            tracing::error!("Accessibility permissions check failed - access denied");
+            tracing::error!("Accessibility permissions denied");
             Err(AppError::Accessibility(
-        "Accessibility permissions are not granted. Please enable in System Preferences > Privacy & Security > Accessibility".to_string(),
+        "Accessibility permissions not granted. Enable in System Preferences > Privacy & Security > Accessibility".to_string(),
       ))
         }
     }
 
-    /// Escanea elementos clicables en la aplicación activa
-    pub async fn scan_clickable_elements(&self) -> Result<Vec<UIElement>> {
-        tracing::info!("AccessibilityService scanning clickable elements");
+    fn map_ax_element(&self, element: AXUIElementRef, index: usize) -> Result<UIElement> {
+        let role = get_element_role(element)?;
+        let title = get_element_title(element);
+        let rect = get_element_rect(element)?;
 
-        // Guard: verificar permisos antes de continuar
+        let id = format!("ax-{}-{}", index, role.to_lowercase().replace("ax", ""));
+
+        tracing::trace!("Mapped: {} role={}", id, role);
+
+        Ok(UIElement::new(
+            id,
+            role,
+            title,
+            rect.x,
+            rect.y,
+            rect.width,
+            rect.height,
+        ))
+    }
+
+    /// Libera un AXUIElementRef de forma segura
+    fn release_element(&self, element: AXUIElementRef) {
+        if !element.is_null() {
+            // SAFETY: CFRelease es segura con un CFTypeRef válido no nulo
+            unsafe { CFRelease(element as *const c_void) };
+        }
+    }
+
+    pub async fn scan_clickable_elements(&self) -> Result<Vec<UIElement>> {
+        tracing::info!("Scanning clickable elements");
+
         self.ensure_permissions()?;
 
-        // TODO: Implementar en próximos pasos:
-        // 1. Obtener ventana activa con get_active_window()
-        // 2. Recorrer árbol con traverse_accessibility_tree()
-        // 3. Filtrar elementos clicables
-        // 4. Convertir AXUIElementRef a UIElement
+        let active_window = get_active_window()?;
 
-        tracing::warn!("scan_clickable_elements is not yet fully implemented (stub)");
-        Ok(Vec::new())
+        let ax_elements =
+            traverse_accessibility_tree(active_window, self.max_depth, self.max_elements);
+
+        tracing::debug!("Found {} AX elements", ax_elements.len());
+
+        let mut ui_elements = Vec::with_capacity(ax_elements.len());
+
+        for (index, ax_element) in ax_elements.iter().enumerate() {
+            match self.map_ax_element(*ax_element, index) {
+                Ok(ui_element) => {
+                    if is_clickable_role(&ui_element.role)
+                        && ui_element.width > 1.0
+                        && ui_element.height > 1.0
+                    {
+                        ui_elements.push(ui_element);
+                    }
+                }
+                Err(err) => {
+                    tracing::debug!("Skipping element {}: {}", index, err);
+                }
+            }
+
+            // Liberar el AXUIElementRef después de procesarlo
+            self.release_element(*ax_element);
+        }
+
+        // Liberar la ventana activa
+        self.release_element(active_window);
+
+        tracing::info!("Found {} clickable elements", ui_elements.len());
+
+        Ok(ui_elements)
     }
 }
 
@@ -103,34 +144,14 @@ mod tests {
     #[test]
     fn test_service_creation() {
         let service = AccessibilityService::new();
-        assert!(std::mem::size_of_val(&service) == 0, "Should be zero-sized");
+        assert_eq!(service.max_depth, DEFAULT_MAX_DEPTH);
+        assert_eq!(service.max_elements, DEFAULT_MAX_ELEMENTS);
     }
 
     #[test]
-    #[cfg(target_os = "macos")]
-    fn test_check_permissions_returns_bool() {
-        let service = AccessibilityService::new();
-        let result = service.check_permissions();
-        assert!(result == true || result == false);
-    }
-
-    #[test]
-    #[cfg(target_os = "macos")]
-    fn test_ensure_permissions_returns_result() {
-        let service = AccessibilityService::new();
-        let result = service.ensure_permissions();
-        // Pasa si tiene permisos (Ok) o si falla por falta de permisos (Err)
-        assert!(result.is_ok() || result.is_err());
-    }
-
-    #[tokio::test]
-    async fn test_scan_stub_returns_empty_or_permission_error() {
-        let service = AccessibilityService::new();
-        let result = service.scan_clickable_elements().await;
-        // Puede ser Ok (vacío) o Err (sin permisos)
-        match result {
-            Ok(elements) => assert!(elements.is_empty()),
-            Err(e) => assert!(e.to_string().contains("Accessibility")),
-        }
+    fn test_service_with_config() {
+        let service = AccessibilityService::with_config(5, 100);
+        assert_eq!(service.max_depth, 5);
+        assert_eq!(service.max_elements, 100);
     }
 }

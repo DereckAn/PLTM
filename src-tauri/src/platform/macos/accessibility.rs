@@ -1,3 +1,4 @@
+use std::collections::VecDeque;
 use std::ffi::c_void;
 
 use crate::error::AppError;
@@ -32,8 +33,8 @@ extern "C" {
         value: *mut *const c_void,
     ) -> i32;
     fn AXUIElementCopyAttributeNames(element: AXUIElementRef, names: *mut *const c_void) -> i32;
-    // fn AXValueGetType(value: AXValueRef) -> u32;
     fn AXValueGetValue(value: AXValueRef, value_type: u32, value_ptr: *mut c_void) -> bool;
+    fn CFRetain(cf: *const c_void) -> *const c_void;
 }
 
 // Constantes de tipos AXValue
@@ -49,8 +50,6 @@ const K_AX_TITLE_ATTRIBUTE: &str = "AXTitle";
 const K_AX_POSITION_ATTRIBUTE: &str = "AXPosition";
 const K_AX_SIZE_ATTRIBUTE: &str = "AXSize";
 const K_AX_ROLE_ATTRIBUTE: &str = "AXRole";
-// const K_AX_SUBROLE_ATTRIBUTE: &str = "AXSubrole";
-#[allow(dead_code)]
 const K_AX_CHILDREN_ATTRIBUTE: &str = "AXChildren";
 
 // Rolers clickeables
@@ -73,15 +72,68 @@ const CLICKABLE_ROLES: &[&str] = &[
     "AXTabGroup",
 ];
 
+// =============================================================================
+// RAII Wrapper para AXUIElementRef
+// =============================================================================
+
+// Wrapper RAII para AXUIElementRef que libera automaticamente el recurso
+pub struct AXElement {
+    inner: AXUIElementRef,
+    owned: bool,
+}
+
+impl AXElement {
+    pub fn new_owned(element: AXUIElementRef) -> Self {
+        Self {
+            inner: element,
+            owned: true,
+        }
+    }
+
+    // Crea un wrapper sin tomar ownership (no libera el elemento)
+    pub fn new_borrowed(element: AXUIElementRef) -> Self {
+        // Retener el elemento para evitar que se libere
+        Self {
+            inner: element,
+            owned: false,
+        }
+    }
+
+    // Retiene el elemento y devuelve un nuevo wrapper owned
+    pub fn retain(&self) -> Self {
+        if !self.inner.is_null() {
+            // SAFETY: CFRetain es segura con un CFTypeRef válido
+            unsafe { CFRetain(self.inner) };
+        }
+        Self {
+            inner: self.inner,
+            owned: true,
+        }
+    }
+
+    // Obtiene el puntero interno
+    pub fn as_ptr(&self) -> AXUIElementRef {
+        self.inner
+    }
+}
+
+impl Drop for AXElement {
+    fn drop(&mut self) {
+        if self.owned && !self.inner.is_null() {
+            // SAFETY: CFRelease es segura con un CFTypeRef válido
+            unsafe { CFRelease(self.inner) };
+            tracing::trace!("Released AXUIElementRef {:p}", self.inner);
+        }
+    }
+}
+
 /// Verifica si la aplicación tiene permisos de accesibilidad
 pub fn has_accessibility_permissions() -> bool {
-    tracing::info!("Checking accessibility permissions");
+    tracing::trace!("Checking accessibility permissions");
 
     // SAFETY: AXIsProcessTrustedWithOptions es segura con null pointer
     // y solo lee el estado de permisos del sistema
-    let result = unsafe { AXIsProcessTrustedWithOptions(std::ptr::null()) };
-
-    result
+    unsafe { AXIsProcessTrustedWithOptions(std::ptr::null()) }
 }
 
 /// Solicita permisos de accesibilidad (muestra el prompt del sistema)
@@ -115,10 +167,11 @@ pub fn request_permissions() -> Result<()> {
 ///
 /// # Safety
 /// Devuelve un AXUIElementRef que debe ser liberado con CFRelease
-fn create_system_wide() -> AXUIElementRef {
+fn create_system_wide() -> AXElement {
     // SAFETY: AXUIElementCreateSystemWide siempre devuelve un elemento válido
     // o null si hay un error catastrófico del sistema
-    unsafe { AXUIElementCreateSystemWide() }
+    let element = unsafe { AXUIElementCreateSystemWide() };
+    AXElement::new_owned(element)
 }
 
 /// Helper privado para obtener un atributo de un elemento AX
@@ -159,36 +212,24 @@ fn copy_attribute_value(element: AXUIElementRef, attribute: &str) -> Result<*con
     Ok(value)
 }
 
-/// Helper privado para liberar un AXUIElementRef de forma segura
-fn release_ax_element(element: *const c_void) {
-    if !element.is_null() {
-        // SAFETY: CFRelease es segura si el puntero es un CFTypeRef válido
-        // o null (en cuyo caso es un no-op)
-        unsafe { CFRelease(element) };
-    }
-}
-
 /// Obtiene el PID de la aplicación enfocada
 pub fn get_focused_application() -> Result<Option<i32>> {
-    tracing::info!("Getting focused application PID");
+    tracing::trace!("Getting focused application PID");
 
     let system_wide = create_system_wide();
 
     // Obtener la aplicación enfocada
-    let focused_app = match copy_attribute_value(system_wide, K_AX_FOCUSED_APPLICATION_ATTRIBUTE) {
-        Ok(app) => app,
-        Err(e) => {
-            tracing::error!("Failed to get focused application: {}", e);
-            return Err(e);
-        }
-    };
+    let focused_app =
+        match copy_attribute_value(system_wide.as_ptr(), K_AX_FOCUSED_APPLICATION_ATTRIBUTE) {
+            Ok(app) => AXElement::new_owned(app),
+            Err(e) => {
+                tracing::error!("Failed to get focused application: {}", e);
+                return Err(e);
+            }
+        };
 
     // Obtener el PID de la aplicación
-    let pid_result = copy_attribute_value(focused_app as AXUIElementRef, K_AX_PID_ATTRIBUTE);
-
-    // Liberar la referencia de focused_app (RAII manual)
-    release_ax_element(focused_app);
-    release_ax_element(system_wide);
+    let pid_result = copy_attribute_value(focused_app.as_ptr(), K_AX_PID_ATTRIBUTE);
 
     let pid_value = match pid_result {
         Ok(value) => value,
@@ -201,6 +242,10 @@ pub fn get_focused_application() -> Result<Option<i32>> {
     // SAFETY: wrap_under_create_rule toma ownership del CFNumberRef
     // y lo liberará automáticamente cuando salga de scope
     let pid_number = unsafe { CFNumber::wrap_under_create_rule(pid_value as *const _) };
+
+    // Liberar wrappers (RAII los libera al salir de scope)
+    drop(focused_app);
+    drop(system_wide);
 
     match pid_number.to_i32() {
         Some(pid) => {
@@ -221,22 +266,25 @@ pub fn get_focused_application() -> Result<Option<i32>> {
 /// # Warning
 /// El caller es responsable de liberar el AXUIElementRef retornado
 pub fn get_active_window() -> Result<AXUIElementRef> {
-    tracing::info!("Getting active window element");
+    tracing::trace!("Getting active window element");
 
     let system_wide = create_system_wide();
+    let focused_app_ptr =
+        copy_attribute_value(system_wide.as_ptr(), K_AX_FOCUSED_APPLICATION_ATTRIBUTE)?;
+    let focused_app = AXElement::new_owned(focused_app_ptr);
 
-    let focused_app = copy_attribute_value(system_wide, K_AX_FOCUSED_APPLICATION_ATTRIBUTE)?;
-
-    match copy_attribute_value(focused_app as AXUIElementRef, K_AX_FOCUSED_WINDOW_ATTRIBUTE) {
+    match copy_attribute_value(focused_app.as_ptr(), K_AX_FOCUSED_WINDOW_ATTRIBUTE) {
         Ok(window) => {
-            // El caller debe liberar focused_app y window
-            release_ax_element(focused_app);
-            Ok(window as AXUIElementRef)
+            // Retain el window para el caller y liberar wrappers locales
+            unsafe { CFRetain(window) };
+            drop(focused_app);
+            drop(system_wide);
+            Ok(window)
         }
         Err(e) => {
-            release_ax_element(focused_app);
             tracing::error!("Failed to get main window: {}", e);
-            Ok(focused_app as AXUIElementRef)
+            drop(system_wide);
+            Ok(focused_app.retain().as_ptr())
         }
     }
 }
@@ -257,7 +305,11 @@ pub fn get_element_rect(element: AXUIElementRef) -> Result<Rect> {
         )
     };
 
-    release_ax_element(position_value);
+    unsafe {
+        CFRelease(position_value);
+    }
+
+    // release_ax_element(position_value);
 
     if !position_ok {
         return Err(AppError::Accessibility(
@@ -278,7 +330,10 @@ pub fn get_element_rect(element: AXUIElementRef) -> Result<Rect> {
             size.as_mut_ptr() as *mut c_void,
         )
     };
-    release_ax_element(size_value);
+
+    unsafe {
+        CFRelease(size_value);
+    }
 
     if !size_ok {
         return Err(AppError::Accessibility(
@@ -342,6 +397,7 @@ pub fn get_children(element: AXUIElementRef) -> Result<Vec<AXUIElementRef>> {
         if let Some(child) = cf_array.get(i) {
             // Retener el elemento para que no se libere cuando cf_array salga de scope
             let child_ptr = child.as_concrete_TypeRef() as AXUIElementRef;
+            unsafe { CFRetain(child_ptr) };
             children.push(child_ptr);
         }
     }
@@ -361,19 +417,21 @@ pub fn traverse_accessibility_tree(
     max_depth: usize,
     max_elements: usize,
 ) -> Vec<AXUIElementRef> {
-    tracing::info!(
+    tracing::trace!(
         "Traversing accessibility tree (max_depth: {}, max_elements: {})",
         max_depth,
         max_elements
     );
 
     let mut clickable_elements = Vec::new();
-    let mut queue: std::collections::VecDeque<(AXUIElementRef, usize)> =
-        std::collections::VecDeque::new();
+    let mut queue: VecDeque<(AXUIElementRef, usize)> = VecDeque::new();
+    let mut _visited_count = 0usize;
 
     queue.push_back((root, 0));
 
     while let Some((element, depth)) = queue.pop_front() {
+        _visited_count += 1;
+
         // Límite de profundidad
         if depth > max_depth {
             continue;
@@ -381,7 +439,7 @@ pub fn traverse_accessibility_tree(
 
         // Límite de elementos encontrados
         if clickable_elements.len() >= max_elements {
-            tracing::info!("Reached max elements limit: {}", max_elements);
+            tracing::trace!("Reached max elements limit: {}", max_elements);
             break;
         }
 
@@ -391,7 +449,7 @@ pub fn traverse_accessibility_tree(
                 // Verificar que el elemento tiene un rectángulo válido
                 if let Ok(rect) = get_element_rect(element) {
                     if rect.width > 0.0 && rect.height > 0.0 {
-                        tracing::debug!(
+                        tracing::trace!(
                             "Found clickable element: {} at ({}, {}) {}x{}",
                             role,
                             rect.x,
@@ -399,6 +457,7 @@ pub fn traverse_accessibility_tree(
                             rect.width,
                             rect.height
                         );
+                        unsafe { CFRetain(element) };
                         clickable_elements.push(element);
                     }
                 }
@@ -412,6 +471,10 @@ pub fn traverse_accessibility_tree(
                     queue.push_back((child, depth + 1));
                 }
             }
+        }
+        // Liberar el elemento actual si no es el root
+        if depth > 0 {
+            unsafe { CFRelease(element) };
         }
     }
 
