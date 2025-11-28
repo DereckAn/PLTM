@@ -7,5 +7,5 @@ use crate::Result;
 pub async fn register_hotkey(key_combo: String, state: State<'_, AppState>) -> Result<()> {
     let mut hotkeys = state.hotkey_service.lock().await;
 
-    hotkeys.register_activation_hotkey(&key_combo)
+    hotkeys.register(&key_combo)
 }

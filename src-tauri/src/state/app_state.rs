@@ -18,8 +18,8 @@ impl AppState {
     pub fn new() -> Result<Self> {
         tracing::info!("Initializing AppState...");
 
-        let hotkeys = HotkeyService::new()?;
-        let window_manager = WindowManager::new()?;
+        let hotkeys = HotkeyService::new();
+        let window_manager = WindowManager::new();
 
         Ok(Self {
             accessibility_service: AccessibilityService::new(),

@@ -275,8 +275,6 @@ pub fn get_active_window() -> Result<AXUIElementRef> {
 
     match copy_attribute_value(focused_app.as_ptr(), K_AX_FOCUSED_WINDOW_ATTRIBUTE) {
         Ok(window) => {
-            // Retain el window para el caller y liberar wrappers locales
-            unsafe { CFRetain(window) };
             drop(focused_app);
             drop(system_wide);
             Ok(window)

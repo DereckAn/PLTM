@@ -1,58 +1,67 @@
-use crate::{error::AppError, Result};
-use global_hotkey::hotkey::{Code, HotKey, Modifiers};
-use global_hotkey::GlobalHotKeyManager;
-use std::collections::HashMap;
-use tauri::AppHandle;
+use crate::Result;
 
+/// Servicio para gestionar hotkeys globales
+/// TODO: Implementar captura real de eventos de teclado en Fase 2
 pub struct HotkeyService {
-    manager: GlobalHotKeyManager,
-    registered_hotkeys: HashMap<String, HotKey>,
+    registered_hotkey: Option<String>,
 }
 
 impl HotkeyService {
-    pub fn new() -> Result<Self> {
-        tracing::info!("Initializing HotkeyService...");
-
-        let manager = GlobalHotKeyManager::new().map_err(|e| {
-            tracing::error!("Failed to initialize hotkey manager: {}", e);
-            AppError::Hotkey(e.to_string())
-        })?;
-
-        tracing::info!("HotkeyService initialized.");
-        Ok(Self {
-            manager,
-            registered_hotkeys: HashMap::new(),
-        })
-    }
-
-    // Registra el hotkey principal para activar la navegacion
-    pub fn register_activation_hotkey(&mut self, key_combo: &str) -> Result<()> {
-        tracing::info!("Registering activation hotkey: {}", key_combo);
-
-        // 1. Parsear key_combo
-        // 2. Registrar hotkey con GlobalHotKeyManager
-        // 3. Almacenar en registered_hotkeys
-
-        // Ej: "Cmd+J"
-
-        let hotkey = HotKey::new(Some(Modifiers::SUPER), Code::KeyJ);
-        match self.manager.register(hotkey) {
-            Ok(_) => {
-                self.registered_hotkeys
-                    .insert(key_combo.to_string(), hotkey);
-                tracing::info!("Hotkey '{}' registered successfully", key_combo);
-                Ok(())
-            }
-            Err(e) => {
-                tracing::error!("Failed to register hotkey '{}': {}", key_combo, e);
-                Err(e.into())
-            }
+    pub fn new() -> Self {
+        tracing::debug!("Initializing HotkeyService");
+        Self {
+            registered_hotkey: None,
         }
     }
 
-    // Maneja el evento cuando se presiona el hotkey
+    /// Registra un hotkey global
+    /// TODO: Implementar registro real con APIs nativas por OS
+    pub fn register(&mut self, hotkey: &str) -> Result<()> {
+        tracing::info!("Registering hotkey: {}", hotkey);
+        // TODO: Parsear hotkey string (ej: "Cmd+J" -> modifiers + key)
+        // TODO: Llamar a API nativa para registrar el hotkey global
+        self.registered_hotkey = Some(hotkey.to_string());
+        Ok(())
+    }
+
+    /// Desregistra el hotkey actual
     #[allow(dead_code)]
-    pub async fn handle_hotkey_pressed(&self, _app: AppHandle) {
-        // TODO:  Activar modo navegacion, escanear, generar hints, mostrar overlay.
+    pub fn unregister(&mut self) -> Result<()> {
+        tracing::info!("Unregistering hotkey");
+        // TODO: Llamar a API nativa para desregistrar
+        self.registered_hotkey = None;
+        Ok(())
+    }
+
+    /// Obtiene el hotkey registrado actualmente
+    #[allow(dead_code)]
+    pub fn current_hotkey(&self) -> Option<&str> {
+        self.registered_hotkey.as_deref()
+    }
+}
+
+impl Default for HotkeyService {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_register_hotkey() {
+        let mut service = HotkeyService::new();
+        assert!(service.register("Cmd+J").is_ok());
+        assert_eq!(service.current_hotkey(), Some("Cmd+J"));
+    }
+
+    #[test]
+    fn test_unregister_hotkey() {
+        let mut service = HotkeyService::new();
+        service.register("Cmd+J").unwrap();
+        assert!(service.unregister().is_ok());
+        assert_eq!(service.current_hotkey(), None);
     }
 }
