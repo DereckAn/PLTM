@@ -12,6 +12,6 @@ pub use click_service::ClickService;
 pub use hint_service::HintGenerator;
 pub use hotkey_service::HotkeyService;
 pub use window_manager::WindowManager;
-pub use element_filter_service::ElementFilter;
+pub use element_filter_service::filter_elements;
 pub use spatial_index::SpatialIndex;
 pub use pipeline::Pipeline;

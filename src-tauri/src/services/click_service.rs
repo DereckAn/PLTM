@@ -16,3 +16,4 @@ impl ClickService {
         events::post_mouse_click(x, y)
     }
 }
+

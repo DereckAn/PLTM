@@ -1,16 +1,20 @@
 use serde::{Deserialize, Serialize};
-use crate::models::element::UIElement;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Hint {
-    pub id: String,
     pub label: String,
-    pub element: UIElement,
-    pub position: Position,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Position {
     pub x: f64,
     pub y: f64,
+    pub element_id: String,
+}
+
+impl Hint {
+    pub fn new(label: String, x: f64, y: f64, element_id: String) -> Self {
+        Self {
+            label,
+            x,
+            y,
+            element_id,
+        }
+    }
 }

@@ -25,4 +25,12 @@ export class TauriCommands {
     static async showHints(hints: Hint[]): Promise<void> {
         return invoke('show_hints', { hints });
     }
+
+    static async activateNavigation(): Promise<Hint[]> {
+        return invoke<Hint[]>("activate_navigation");
+    }
+
+    static async deactivateNavigation(): Promise<void> {
+        return invoke("deactivate_navigation");
+    }
 }

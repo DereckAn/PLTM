@@ -1,12 +1,3 @@
-export interface UIElement {
-  id: string;
-  role: AccessibilityRole;
-  position: Rect;
-  title?: string;
-  value?: string;
-  is_focusable: boolean;
-}
-
 interface Rect {
   x: number;
   y: number;
@@ -21,10 +12,20 @@ export type AccessibilityRole =
   | "checkbox"
   | "menuitem"
   | "other";
+  
+export interface UIElement {
+  id: string;
+  role: string;
+  title: string | null;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
 
 export interface Hint {
-  id: string;
   label: string;
   x: number;
   y: number;
+  element_id: string;
 }

@@ -18,8 +18,12 @@ impl AppState {
     pub fn new() -> Result<Self> {
         tracing::info!("Initializing AppState...");
 
-        let hotkeys = HotkeyService::new();
+        let mut hotkeys = HotkeyService::new();
         let window_manager = WindowManager::new();
+
+        if let Err(err) = hotkeys.register_default() {
+            tracing::warn!("Failed to register default hotkey: {}", err);
+        }
 
         Ok(Self {
             accessibility_service: AccessibilityService::new(),
