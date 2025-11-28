@@ -4,4 +4,3 @@ pub mod hint;
 
 pub use element::UIElement;
 pub use hint::Hint;
-pub use config::AppConfig;

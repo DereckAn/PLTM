@@ -31,12 +31,6 @@ impl Default for AppConfig {
     }
 }
 
-impl AppConfig {
-    pub fn new() -> Self {
-        Self::default()
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

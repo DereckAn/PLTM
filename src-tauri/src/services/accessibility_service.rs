@@ -25,6 +25,7 @@ impl AccessibilityService {
         }
     }
 
+    #[allow(dead_code)]
     pub fn with_config(max_depth: usize, max_elements: usize) -> Self {
         tracing::debug!(
             "Initializing AccessibilityService (max_depth={}, max_elements={})",

@@ -1,9 +1,7 @@
 ---
-
 # Arquitectura General – PLTM (Keyboard Navigation App)
 
 Aplicación multi-OS tipo Homerow, ultra optimizada, con arquitectura empresarial y foco obsesivo en performance.
-
 ---
 
 ## 1. Objetivos
@@ -544,8 +542,8 @@ Estas métricas se validan en:
 - [x] Setup Tauri + Svelte + Bun.
 - [x] Capa Platform macOS básica: permisos AX, PID, ventana, roles/título/rect; overlay y clicks con stubs nativos mínimos.
 - [x] Services y models: AppError/Result/logging listos; AccessibilityService parcial; otros servicios esqueleto.
-- [~] Hotkey básico, scan simple, hints sin R-tree ni SIMD: hotkey registra combo fijo; scan hace BFS y mapea a UIElement; hint gen simple.
-- [ ] Overlay nativo que dibuja hints (aún stub).
+- [x] Hotkey básico, scan simple, hints sin R-tree ni SIMD: hotkey registra combo fijo; scan hace BFS y mapea a UIElement; hint gen simple.
+- [x] Overlay nativo que dibuja hints (macOS con NSWindow+CALayer; falta multi-monitor/main-thread bridge desde comandos).
 
 ### Fase 2 – Core Pipeline
 
@@ -553,6 +551,7 @@ Estas métricas se validan en:
 - [~] Implementar `ElementFilter`: filtrado por rol/tamaño está; falta desduplicado/spatial/visibilidad.
 - [~] Añadir `HintGenerator` estable: generador base-N simple, integración incompleta.
 - [ ] Integrar `WindowManager` con `OverlayRenderer`: sigue stub, sin render nativo.
+  - [ ] Mejorar OverlayRenderer macOS: detectar pantalla activa (multi-monitor), mover al hilo principal desde comandos Tauri y aplicar theming/color contrast.
 
 ### Fase 3 – Performance v1 (Rápido)
 

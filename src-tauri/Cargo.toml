@@ -27,15 +27,20 @@ core-foundation = "0.10.1"
 core-foundation-sys = "0.8.7"
 
 # Objective-C Runtime con features para Foundation
-objc2 = "0.6.3"
-objc2-foundation = { version = "0.3.2", features = [
-  "NSString",
-  "NSBundle",
-  "NSAutoreleasePool",
-  "NSDictionary",
-  "NSArray",
-  "NSError"
+objc2 = "0.6"
+objc2-foundation = { version = "0.3", features = ["NSString", "NSArray", "NSThread", "NSGeometry"] }
+objc2-app-kit = { version = "0.3", features = [
+  "NSWindow",
+  "NSView",
+  "NSColor",
+  "NSScreen",
+  "NSGraphicsContext",
+  "NSApplication",
+  "NSRunningApplication",
+  "NSResponder",
 ] }
+objc2-quartz-core = { version = "0.3", features = ["CALayer", "CATextLayer", "CATransaction"] }
+objc2-core-foundation = { version = "0.3", features = ["CFCGTypes"] }
 
 # Accessibility API
 accessibility-sys = "0.2.0"

@@ -1,7 +1,7 @@
 use serde::Serialize;
 use thiserror::Error;
 
-#[derive(Error, Debug, Serialize)]
+#[derive(Error, Debug)]
 pub enum AppError {
     #[error("Accessibility error: {0}")]
     Accessibility(String),
@@ -15,11 +15,29 @@ pub enum AppError {
     #[error("Click error: {0}")]
     Click(String),
 
+    #[error("Window error: {0}")]
+    Window(String),
+
     #[error("Config error: {0}")]
     Config(String),
 
+    #[error("Permission denied: {0}")]
+    PermissionDenied(String),
+
+    #[error("Internal error: {0}")]
+    Internal(String),
+
     #[error("{0}")]
     Other(String),
+}
+
+impl Serialize for AppError {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_str(&self.to_string())
+    }
 }
 
 // Conversiones automáticas desde errores comunes
