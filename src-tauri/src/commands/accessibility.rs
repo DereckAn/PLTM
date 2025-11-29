@@ -2,6 +2,7 @@ use tauri::State;
 
 use crate::models::UIElement;
 use crate::state::AppState;
+use crate::error::AppError;
 use crate::Result;
 
 #[tauri::command]
@@ -49,4 +50,28 @@ pub async fn get_focused_app_pid(state: State<'_, AppState>) -> Result<Option<i3
             Err(e)
         }
     }
+}
+
+/// Abre directamente la sección de Accesibilidad en Configuración (macOS)
+#[tauri::command]
+#[cfg(target_os = "macos")]
+pub async fn open_accessibility_settings() -> Result<()> {
+    tracing::info!("Opening Accessibility preferences (macOS)");
+    std::process::Command::new("open")
+        .arg("x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")
+        .spawn()
+        .map_err(|e| {
+            tracing::error!("Failed to open Accessibility settings: {}", e);
+            AppError::Accessibility("Unable to open System Settings".to_string())
+        })?;
+    Ok(())
+}
+
+/// Stub para plataformas no soportadas
+#[tauri::command]
+#[cfg(not(target_os = "macos"))]
+pub async fn open_accessibility_settings() -> Result<()> {
+    Err(AppError::Accessibility(
+        "Accessibility settings shortcut not supported on this OS".to_string(),
+    ))
 }

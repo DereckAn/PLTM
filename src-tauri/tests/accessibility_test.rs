@@ -9,7 +9,9 @@ mod macos_accessibility_tests {
 
     /// Helper para verificar si un error es por falta de permisos
     fn is_permission_error(err: &str) -> bool {
-        err.contains(AX_ERROR_CANNOT_COMPLETE) || err.contains(AX_ERROR_API_DISABLED)
+        err.contains(AX_ERROR_CANNOT_COMPLETE)
+            || err.contains(AX_ERROR_API_DISABLED)
+            || err.contains("Check accessibility permissions")
     }
 
     #[test]

@@ -14,6 +14,10 @@ export class TauriCommands {
         return invoke('request_permissions');
     }
 
+    static async openAccessibilitySettings(): Promise<void> {
+        return invoke('open_accessibility_settings');
+    }
+
     static async registerHotkey(keyCombo: string): Promise<void> {
         return invoke('register_hotkey', { keyCombo });
     }

@@ -8,6 +8,7 @@
   let maxHints = 400;
   let isChecking = false;
   let isSaving = false;
+  let isOpeningPrefs = false;
 
   onMount(async () => {
     // hasPermissions.set(await TauriCommands.checkPermissions());
@@ -33,6 +34,27 @@
       await checkPermissionsStatus();
     } catch (e) {
       console.error("Error requesting permissions:", e);
+    }
+  }
+
+  async function openPreferences() {
+    if (isOpeningPrefs) return;
+    isOpeningPrefs = true;
+    try {
+      await TauriCommands.openAccessibilitySettings();
+      const poll = async (attempts = 0) => {
+        const ok = await TauriCommands.checkPermissions();
+        hasPermissions.set(ok);
+        if (!ok && attempts < 10) {
+          await new Promise((r) => setTimeout(r, 1000));
+          return poll(attempts + 1);
+        }
+      };
+      await poll();
+    } catch (e) {
+      console.error("Error opening accessibility settings:", e);
+    } finally {
+      isOpeningPrefs = false;
     }
   }
 
@@ -93,12 +115,6 @@
         </svg>
         <span class="text-sm text-amber-800">
           Se requieren permisos de accesibilidad para usar PLTM.
-          <a
-            href="x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"
-            class="underline font-medium"
-          >
-            Abrir Preferencias
-          </a>
         </span>
       </div>
       <button
@@ -107,6 +123,13 @@
         disabled={isChecking}
       >
         Volver a comprobar
+      </button>
+      <button
+        class="px-2 py-1 text-xs rounded bg-amber-100 text-amber-800 hover:bg-amber-200 disabled:opacity-50"
+        on:click={openPreferences}
+        disabled={isOpeningPrefs}
+      >
+        {isOpeningPrefs ? "Abriendo..." : "Ver permisos"}
       </button>
     </div>
   {/if}

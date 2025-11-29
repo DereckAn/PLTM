@@ -1,13 +1,15 @@
-use tauri::State;
+use tauri::{AppHandle, State};
+use std::sync::mpsc;
 
 use crate::models::Hint;
 use crate::services::{filter_elements, HintGenerator};
 use crate::state::AppState;
 use crate::Result;
+use crate::AppError;
 
 /// Comando que ejecuta el flujo completo: scan → filter → hints → overlay
 #[tauri::command]
-pub async fn activate_navigation(state: State<'_, AppState>) -> Result<Vec<Hint>> {
+pub async fn activate_navigation(app: AppHandle, state: State<'_, AppState>) -> Result<Vec<Hint>> {
     tracing::info!("Command: activate_navigation");
 
     // 1. Verificar permisos
@@ -29,11 +31,27 @@ pub async fn activate_navigation(state: State<'_, AppState>) -> Result<Vec<Hint>
     let hints = hint_generator.generate(&filtered);
     tracing::info!("Generated {} hints", hints.len());
 
-    // 5. Mostrar overlay (stub por ahora)
-    {
-        let mut wm = state.window_manager.lock().await;
-        wm.show_overlay(&hints).await?;
-    }
+    // 5. Mostrar overlay en hilo principal
+    let wm = state.window_manager.clone();
+    let hints_clone = hints.clone();
+    let (tx, rx) = mpsc::channel();
+
+    app
+        .run_on_main_thread(move || {
+            let res = tauri::async_runtime::block_on(async {
+                let mut guard = wm.lock().await;
+                guard.show_overlay(&hints_clone).await
+            });
+            let _ = tx.send(res);
+        })
+        .map_err(|e| {
+            tracing::error!("Failed to render overlay on main thread: {}", e);
+            AppError::Overlay("Failed to render overlay".to_string())
+        })?;
+
+    let _render_res = rx
+        .recv()
+        .map_err(|_| AppError::Overlay("Failed to render overlay".to_string()))??;
 
     tracing::info!("Navigation activated successfully");
     Ok(hints)

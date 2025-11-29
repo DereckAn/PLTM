@@ -8,9 +8,9 @@
 - Limpia capas al ocultar (`hide`) y en `teardown` (`Drop`).
 
 ## API que te toca
-- `WindowManager::show_overlay(&hints)` y `hide_overlay()` siguen siendo tu punto de entrada.
-- `WindowManager` usa internamente el trait `OverlayRenderer` y el renderer macOS (`MacOverlay`).
-- Si llamas a `show_overlay` desde Tauri, asegúrate de ejecutarlo en el hilo principal (usa `app.run_on_main_thread` si lo envías desde otro hilo) porque `MacOverlay` valida el hilo con `MainThreadMarker`.
+- `WindowManager::show_overlay(&hints)` y `hide_overlay()` siguen siendo el entrypoint.
+- `WindowManager` usa el trait `OverlayRenderer` y el renderer macOS (`MacOverlay`).
+- Los comandos Tauri (`show_hints`, `activate_navigation`) ya despachan el render al hilo principal con `app.run_on_main_thread`, no necesitas hacer nada extra en frontend.
 
 ## Coordenadas y escala
 - Recibe coords de hints en el sistema “origen arriba/izquierda”; se convierten a AppKit (origen abajo) con `convert_y`.
@@ -23,8 +23,8 @@
 
 ## Limitaciones actuales
 - Solo implementado para macOS; otros OS usan `NoopRenderer`.
-- Multi-monitor: se toma `NSScreen::mainScreen()`; si mueves la ventana activa a otro monitor necesitarás detectar pantalla activa antes de pintar.
-- Los comandos Tauri aún no forzan main-thread; si llamas desde un hilo de fondo fallará la guardia.
+- Multi-monitor: se toma `NSScreen::mainScreen()`; falta detectar la pantalla activa antes de pintar.
+- Menús/toolbar/systray: aún no se capturan hints para menú superior ni barra de estado.
 
 ## Dónde tocar
 - Ajustar colores/background: dentro de `create_hint_layer`.
@@ -35,6 +35,5 @@
 - Crates `objc2-*`:
   - `NSWindow::initWithContentRect_styleMask_backing_defer` (unsafe) para crear la ventana.
   - `CALayer` / `CATextLayer` para pintar texto.
-  - `MainThreadMarker::new()` para garantizar hilo principal.
+  - `MainThreadMarker::new()` para garantizar hilo principal (las llamadas vienen del comando ya en main thread).
 - Geometría via `objc2_core_foundation::{CGPoint, CGRect, CGSize}` (públicos con feature `CFCGTypes`).
-- No hay `dispatch` ni `core-text`; toda la API es la expuesta por `objc2`/AppKit/QuartzCore.

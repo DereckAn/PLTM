@@ -1,13 +1,15 @@
 use tauri::{AppHandle, State};
+use std::sync::mpsc;
 
 use crate::models::Hint;
 use crate::state::AppState;
 use crate::Result;
+use crate::AppError;
 
 #[tauri::command]
 pub async fn show_hints(
     hints: Vec<Hint>,
-    _app: AppHandle,
+    app: AppHandle,
     state: State<'_, AppState>,
 ) -> Result<()> {
     tracing::info!("Command: show_hints called with {} hints", hints.len());
@@ -18,9 +20,27 @@ pub async fn show_hints(
         return Err(e);
     }
 
-    let mut wm = state.window_manager.lock().await;
+    let wm = state.window_manager.clone();
+    let (tx, rx) = mpsc::channel();
 
-    wm.show_overlay(&hints).await
+    app
+        .run_on_main_thread(move || {
+            let res = tauri::async_runtime::block_on(async {
+                let mut guard = wm.lock().await;
+                guard.show_overlay(&hints).await
+            });
+            let _ = tx.send(res);
+        })
+        .map_err(|e| {
+            tracing::error!("Failed to render overlay on main thread: {}", e);
+            AppError::Overlay("Failed to render overlay".to_string())
+        })?;
+
+    let _render_res = rx
+        .recv()
+        .map_err(|_| AppError::Overlay("Failed to render overlay".to_string()))??;
+
+    Ok(())
 }
 
 #[tauri::command]

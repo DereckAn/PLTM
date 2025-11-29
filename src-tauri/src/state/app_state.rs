@@ -1,7 +1,4 @@
-use crate::services::{
-    AccessibilityService, ClickService, HintGenerator, HotkeyService, WindowManager,
-};
-use crate::Result;
+use crate::services::{AccessibilityService, ClickService, HintGenerator, HotkeyService, WindowManager};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
@@ -15,22 +12,18 @@ pub struct AppState {
 }
 
 impl AppState {
-    pub fn new() -> Result<Self> {
+    pub fn new() -> Self {
         tracing::info!("Initializing AppState...");
 
-        let mut hotkeys = HotkeyService::new();
+        let hotkeys = HotkeyService::new();
         let window_manager = WindowManager::new();
 
-        if let Err(err) = hotkeys.register_default() {
-            tracing::warn!("Failed to register default hotkey: {}", err);
-        }
-
-        Ok(Self {
+        Self {
             accessibility_service: AccessibilityService::new(),
             hotkey_service: Arc::new(Mutex::new(hotkeys)),
             click_service: ClickService::new(),
             hint_generator: HintGenerator::new(),
             window_manager: Arc::new(Mutex::new(window_manager)),
-        })
+        }
     }
 }

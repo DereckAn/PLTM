@@ -58,6 +58,9 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 # Error handling
 thiserror = "2.0.17"
 
+# Concurrency
+crossbeam-channel = "0.5"
+
 # macOS-specific target dependencies
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2-app-kit = { version = "0.3.2", features = ["NSWindow", "NSScreen"] }

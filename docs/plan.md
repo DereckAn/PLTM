@@ -544,6 +544,7 @@ Estas métricas se validan en:
 - [x] Services y models: AppError/Result/logging listos; AccessibilityService parcial; otros servicios esqueleto.
 - [x] Hotkey básico, scan simple, hints sin R-tree ni SIMD: hotkey registra combo fijo; scan hace BFS y mapea a UIElement; hint gen simple.
 - [x] Overlay nativo que dibuja hints (macOS con NSWindow+CALayer; falta multi-monitor/main-thread bridge desde comandos).
+- [x] Hotkey global funcional (Cmd+Shift+J) y render en hilo principal.
 
 ### Fase 2 – Core Pipeline
 
@@ -552,6 +553,7 @@ Estas métricas se validan en:
 - [~] Añadir `HintGenerator` estable: generador base-N simple, integración incompleta.
 - [ ] Integrar `WindowManager` con `OverlayRenderer`: sigue stub, sin render nativo.
   - [ ] Mejorar OverlayRenderer macOS: detectar pantalla activa (multi-monitor), mover al hilo principal desde comandos Tauri y aplicar theming/color contrast.
+  - [ ] Soporte menús/toolbar/systray: capturar roles de menú superior (Apple, File/Edit/View/Window/Help) e iconos de barra de estado (batería, Wi-Fi, reloj, etc.) y generar hints sobre ellos.
 
 ### Fase 3 – Performance v1 (Rápido)
 

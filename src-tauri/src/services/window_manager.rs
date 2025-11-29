@@ -32,7 +32,7 @@ impl OverlayRenderer for NoopRenderer {
 
     fn draw_hints(&mut self, hints: &[Hint]) -> Result<()> {
         tracing::warn!(
-            "NoopRenderer: draw_hints() with {} hints - not rendered",
+            "NoopRenderer: draw_hints() with {} hints - not rendere find",
             hints.len()
         );
         Ok(())

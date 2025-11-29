@@ -220,13 +220,16 @@ pub fn get_focused_application() -> Result<Option<i32>> {
 
     // Obtener la aplicación enfocada
     let focused_app =
-        match copy_attribute_value(system_wide.as_ptr(), K_AX_FOCUSED_APPLICATION_ATTRIBUTE) {
-            Ok(app) => AXElement::new_owned(app),
-            Err(e) => {
-                tracing::error!("Failed to get focused application: {}", e);
-                return Err(e);
-            }
-        };
+    match copy_attribute_value(system_wide.as_ptr(), K_AX_FOCUSED_APPLICATION_ATTRIBUTE) {
+        Ok(app) => AXElement::new_owned(app),
+        Err(e) => {
+            tracing::error!("Failed to get focused application: {}", e);
+            return Err(AppError::Accessibility(
+                "Failed to get focused application. Check accessibility permissions and try again."
+                    .to_string(),
+            ));
+        }
+    };
 
     // Obtener el PID de la aplicación
     let pid_result = copy_attribute_value(focused_app.as_ptr(), K_AX_PID_ATTRIBUTE);

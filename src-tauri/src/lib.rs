@@ -30,6 +30,7 @@ pub fn run() {
             scan_elements,
             check_permissions,
             request_permissions,
+            open_accessibility_settings,
             register_hotkey,
             get_focused_app_pid,
             show_hints,
