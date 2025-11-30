@@ -551,10 +551,14 @@ Estas métricas se validan en:
 - [ ] Separar threads: Scan, Process, Render.
 - [~] Implementar `ElementFilter`: filtrado por rol/tamaño está; falta desduplicado/spatial/visibilidad.
 - [~] Añadir `HintGenerator` estable: generador base-N simple, integración incompleta.
-- [ ] Integrar `WindowManager` con `OverlayRenderer`: sigue stub, sin render nativo.
+  - [ ] Integrar `WindowManager` con `OverlayRenderer`: sigue stub, sin render nativo.
   - [ ] Mejorar OverlayRenderer macOS: detectar pantalla activa (multi-monitor), mover al hilo principal desde comandos Tauri y aplicar theming/color contrast.
   - [ ] Soporte menús/toolbar/systray: capturar roles de menú superior (Apple, File/Edit/View/Window/Help) e iconos de barra de estado (batería, Wi-Fi, reloj, etc.) y generar hints sobre ellos.
-
+  - [ ] Interacción adicional: comandos de scroll (j/k/gg/G, wheel virtual) y modo grid tipo Mouseless como alternativa a hints para no escanear todo; permitir elegir modo (hints vs grid).
+  - [ ] Gestión de ventanas tipo Rectangle: mover/redimensionar/snap a cuadrantes, cambiar de monitor, maximizar/minimizar vía hotkeys.
+  - [ ] Modo Grid completo estilo Mouseless: dividir pantalla en celdas con hints rápidos para mover/clickear sin escaneo AX; permitir arrastrar/seleccionar con teclado y control fino del puntero.
+  - [ ] Modo Hints estilo Homerow: mantener escaneo AX con profundidad configurable, hints sobre elementos UI y menú/toolbar.
+  - [ ] Control del mouse por teclado: mover puntero con home row, saltos a texto/áreas, arrastrar/seleccionar para copiar.
 ### Fase 3 – Performance v1 (Rápido)
 
 - [ ] Integrar **R-tree** (`rstar`).
