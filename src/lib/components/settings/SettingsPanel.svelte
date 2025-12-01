@@ -3,7 +3,7 @@
   import { hasPermissions } from "$lib/stores/app-state";
   import { onMount } from "svelte";
 
-  let activate = "Cmd+J";
+  let activate = "Cmd+Shift+;";
   let scanDepth = 8;
   let maxHints = 400;
   let isChecking = false;
@@ -18,7 +18,8 @@
   async function checkPermissionsStatus() {
     isChecking = true;
     try {
-      hasPermissions.set(await TauriCommands.checkPermissions());
+      const ok = await TauriCommands.checkPermissions();
+      hasPermissions.set(ok);
     } catch (e) {
       console.error("Error checking permissions:", e);
       hasPermissions.set(false);

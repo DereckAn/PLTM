@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 // Configuracion principal de la aplicacion
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct AppConfig {
-    // Hotkey para activar navegacion (ej: "Cmd+J")
+    // Hotkey para activar navegacion (ej: "Cmd+Shift+;")
     pub hotkey: String,
 
     // Profundidad maxima de escaneo del arbol de accesibilidad
@@ -22,7 +22,7 @@ pub struct AppConfig {
 impl Default for AppConfig {
     fn default() -> Self {
         AppConfig {
-            hotkey: "Cmd+J".to_string(),
+            hotkey: "Cmd+Shift+;".to_string(),
             scan_depth: 10,
             max_elements: 500,
             hint_chars: "asdfghjkl".to_string(),
@@ -38,7 +38,7 @@ mod tests {
     #[test]
     fn test_default_config() {
         let config = AppConfig::default();
-        assert_eq!(config.hotkey, "Cmd+J");
+        assert_eq!(config.hotkey, "Cmd+Shift+;");
         assert_eq!(config.scan_depth, 10);
         assert_eq!(config.max_elements, 500);
         assert_eq!(config.hint_chars, "asdfghjkl");

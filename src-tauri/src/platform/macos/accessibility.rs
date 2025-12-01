@@ -51,6 +51,9 @@ const K_AX_POSITION_ATTRIBUTE: &str = "AXPosition";
 const K_AX_SIZE_ATTRIBUTE: &str = "AXSize";
 const K_AX_ROLE_ATTRIBUTE: &str = "AXRole";
 const K_AX_CHILDREN_ATTRIBUTE: &str = "AXChildren";
+const K_AX_WINDOWS_ATTRIBUTE: &str = "AXWindows";
+const K_AX_ACTION_NAMES_ATTRIBUTE: &str = "AXActionNames";
+const K_AX_HIDDEN_ATTRIBUTE: &str = "AXHidden";
 
 // Rolers clickeables
 const CLICKABLE_ROLES: &[&str] = &[
@@ -70,6 +73,10 @@ const CLICKABLE_ROLES: &[&str] = &[
     "AXDisclosureTriangle",
     "AXTab",
     "AXTabGroup",
+    "AXGroup",
+    "AXCell",
+    "AXStaticText",
+    "AXImage",
 ];
 
 // =============================================================================
@@ -283,7 +290,22 @@ pub fn get_active_window() -> Result<AXUIElementRef> {
             Ok(window)
         }
         Err(e) => {
-            tracing::error!("Failed to get main window: {}", e);
+            tracing::warn!("Failed to get main window via AXFocusedWindow: {}", e);
+            // Fallback: usar AXWindows y tomar la primera ventana
+            if let Ok(windows_value) = copy_attribute_value(focused_app.as_ptr(), K_AX_WINDOWS_ATTRIBUTE) {
+                let cf_array: CFArray<CFType> =
+                    unsafe { CFArray::wrap_under_create_rule(windows_value as *const _) };
+                if let Some(win) = cf_array.get(0) {
+                    let win_ptr = win.as_concrete_TypeRef() as AXUIElementRef;
+                    unsafe { CFRetain(win_ptr) };
+                    drop(cf_array);
+                    drop(focused_app);
+                    drop(system_wide);
+                    return Ok(win_ptr);
+                }
+            }
+
+            tracing::warn!("Fallback to focused application element as window");
             drop(system_wide);
             Ok(focused_app.retain().as_ptr())
         }
@@ -411,6 +433,31 @@ pub fn is_clickable_role(role: &str) -> bool {
     CLICKABLE_ROLES.contains(&role)
 }
 
+/// Verifica si el elemento expone la acción AXPress
+pub fn has_press_action(element: AXUIElementRef) -> bool {
+    if let Ok(actions_ptr) = copy_attribute_value(element, K_AX_ACTION_NAMES_ATTRIBUTE) {
+        let cf_array: CFArray<CFString> =
+            unsafe { CFArray::wrap_under_create_rule(actions_ptr as *const _) };
+        for i in 0..cf_array.len() {
+            if let Some(action) = cf_array.get(i) {
+                if action.to_string() == "AXPress" {
+                    return true;
+                }
+            }
+        }
+    }
+    false
+}
+
+    /// Verifica si el elemento está oculto (AXHidden == true)
+    pub fn is_hidden(element: AXUIElementRef) -> bool {
+        if let Ok(hidden_ptr) = copy_attribute_value(element, K_AX_HIDDEN_ATTRIBUTE) {
+            let cf_bool = unsafe { CFBoolean::wrap_under_get_rule(hidden_ptr as *const _) };
+            return cf_bool.as_concrete_TypeRef() == CFBoolean::true_value().as_concrete_TypeRef();
+        }
+        false
+    }
+
 /// Recorre el árbol de accesibilidad usando BFS limitada
 /// Devuelve elementos clickeables encontrados
 pub fn traverse_accessibility_tree(
@@ -444,15 +491,24 @@ pub fn traverse_accessibility_tree(
             break;
         }
 
-        // Verificar si el elemento es clickeable
+        if is_hidden(element) {
+            continue;
+        }
+
+        // Verificar si el elemento es clickeable (rol) o tiene AXPress
         if let Ok(role) = get_element_role(element) {
-            if is_clickable_role(&role) {
+            let role_clickable = is_clickable_role(&role);
+            let has_action = has_press_action(element);
+
+            if role_clickable || has_action {
                 // Verificar que el elemento tiene un rectángulo válido
                 if let Ok(rect) = get_element_rect(element) {
                     if rect.width > 0.0 && rect.height > 0.0 {
                         tracing::trace!(
-                            "Found clickable element: {} at ({}, {}) {}x{}",
+                            "Found clickable element: {} (press_action={}, role_clickable={}) at ({}, {}) {}x{}",
                             role,
+                            has_action,
+                            role_clickable,
                             rect.x,
                             rect.y,
                             rect.width,

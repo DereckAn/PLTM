@@ -59,11 +59,27 @@ pub async fn activate_navigation(app: AppHandle, state: State<'_, AppState>) -> 
 
 /// Comando para desactivar la navegación y ocultar el overlay
 #[tauri::command]
-pub async fn deactivate_navigation(state: State<'_, AppState>) -> Result<()> {
+pub async fn deactivate_navigation(app: AppHandle, state: State<'_, AppState>) -> Result<()> {
     tracing::info!("Command: deactivate_navigation");
 
-    let mut wm = state.window_manager.lock().await;
-    wm.hide_overlay().await?;
+    let wm = state.window_manager.clone();
+    let (tx, rx) = mpsc::channel();
+
+    app
+        .run_on_main_thread(move || {
+            let res = tauri::async_runtime::block_on(async {
+                let mut guard = wm.lock().await;
+                guard.hide_overlay().await
+            });
+            let _ = tx.send(res);
+        })
+        .map_err(|e| {
+            tracing::error!("Failed to hide overlay on main thread: {}", e);
+            AppError::Overlay("Failed to hide overlay".to_string())
+        })?;
+
+    rx.recv()
+        .map_err(|_| AppError::Overlay("Failed to hide overlay".to_string()))??;
 
     tracing::info!("Navigation deactivated");
     Ok(())

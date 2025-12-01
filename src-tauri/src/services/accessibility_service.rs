@@ -8,8 +8,8 @@ use crate::Result;
 use core_foundation::base::CFRelease;
 use std::ffi::c_void;
 
-const DEFAULT_MAX_DEPTH: usize = 10;
-const DEFAULT_MAX_ELEMENTS: usize = 500;
+const DEFAULT_MAX_DEPTH: usize = 500;
+const DEFAULT_MAX_ELEMENTS: usize = 1000;
 
 pub struct AccessibilityService {
     max_depth: usize,

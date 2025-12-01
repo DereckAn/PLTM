@@ -3,20 +3,64 @@
   import { TauriCommands } from "$lib/services/tauri-commands";
   import { hasPermissions, isNavigationActive } from "$lib/stores/app-state";
   import type { Hint } from "$lib/types";
-  import { onMount } from "svelte";
+  import { listen } from "@tauri-apps/api/event";
+  import { onDestroy, onMount } from "svelte";
+  import { get } from "svelte/store";
 
   let showPermissionModal = false;
   let lastHints: Hint[] = [];
   let errorMessage = "";
   let dialogRef: HTMLDialogElement | null = null;
+  let stopHotkeyListener: (() => void) | null = null;
+  let stopEscListener: (() => void) | null = null;
+  let isToggling = false;
 
   onMount(async () => {
     try {
-      hasPermissions.set(await TauriCommands.checkPermissions());
+      const ok = await TauriCommands.checkPermissions();
+      hasPermissions.set(ok);
     } catch (e) {
       console.error("Failed to check permissions on mount:", e);
       hasPermissions.set(false);
     }
+
+    try {
+      stopHotkeyListener = await listen("hotkey-activate", async () => {
+        if (isToggling) return;
+        isToggling = true;
+        try {
+          if (!get(hasPermissions)) {
+            showPermissionModal = true;
+            return;
+          }
+
+          if (get(isNavigationActive)) {
+            console.log("hotkey-activate received → deactivating navigation");
+            await deactivateNavigation();
+          } else {
+            console.log("hotkey-activate received → activating navigation");
+            await activateNavigation();
+          }
+        } finally {
+          isToggling = false;
+        }
+      });
+    } catch (e) {
+      console.error("Failed to listen for hotkey-activate:", e);
+    }
+
+    const onKeyDown = (ev: KeyboardEvent) => {
+      if (ev.key === "Escape" && get(isNavigationActive)) {
+        deactivateNavigation();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    stopEscListener = () => window.removeEventListener("keydown", onKeyDown);
+  });
+
+  onDestroy(() => {
+    stopHotkeyListener?.();
+    stopEscListener?.();
   });
 
   function openModal() {
@@ -121,7 +165,7 @@
           {#if !$hasPermissions}
             Requiere permisos
           {:else}
-            Activar navegación (Cmd+J)
+            Activar navegación (Cmd+Shift+;)
           {/if}
         </button>
       {/if}

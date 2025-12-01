@@ -3,10 +3,11 @@ use crossbeam_channel::Receiver;
 use global_hotkey::hotkey::{Code, HotKey, Modifiers};
 use global_hotkey::{GlobalHotKeyEvent, GlobalHotKeyManager};
 
-pub const DEFAULT_HOTKEY: &str = "Cmd+Shift+J";
+pub const DEFAULT_HOTKEY: &str = "Cmd+Shift+;";
 
 /// Servicio para gestionar hotkeys globales (macOS/Win)
 pub struct HotkeyService {
+    manager: GlobalHotKeyManager,
     registered_hotkey: Option<String>,
     is_active: bool,
 }
@@ -14,13 +15,16 @@ pub struct HotkeyService {
 impl HotkeyService {
     pub fn new() -> Self {
         tracing::debug!("Initializing HotkeyService");
+        let manager = GlobalHotKeyManager::new()
+            .unwrap_or_else(|e| panic!("Failed to create GlobalHotKeyManager: {}", e));
         Self {
+            manager,
             registered_hotkey: None,
             is_active: false,
         }
     }
 
-    /// Registra el hotkey por defecto (Cmd+Shift+J)
+    /// Registra el hotkey por defecto (Cmd+Shift+;)
     #[allow(dead_code)]
     pub fn register_default(&mut self) -> Result<Receiver<GlobalHotKeyEvent>> {
         self.register(DEFAULT_HOTKEY)
@@ -31,8 +35,22 @@ impl HotkeyService {
         tracing::info!("Registering hotkey: {}", hotkey);
 
         let parsed = parse_hotkey(hotkey)?;
-        let manager = GlobalHotKeyManager::new().map_err(|e| AppError::Hotkey(e.to_string()))?;
-        manager
+        // Si ya está registrado el mismo hotkey, no volvemos a registrarlo
+        if let Some(ref current) = self.registered_hotkey {
+            if current == hotkey {
+                tracing::info!("Hotkey {} already registered, skipping re-register", hotkey);
+                return Ok(GlobalHotKeyEvent::receiver().clone());
+            }
+        }
+        // Si hay un hotkey previo diferente, desregistrarlo
+        if let Some(ref current) = self.registered_hotkey {
+            if current != hotkey {
+                let previous = parse_hotkey(current)?;
+                let _ = self.manager.unregister(previous);
+            }
+        }
+
+        self.manager
             .register(parsed)
             .map_err(|e| AppError::Hotkey(e.to_string()))?;
 
@@ -50,8 +68,7 @@ impl HotkeyService {
         tracing::info!("Unregistering hotkey");
         if let Some(ref key) = self.registered_hotkey {
             let parsed = parse_hotkey(key)?;
-            GlobalHotKeyManager::new()
-                .map_err(|e| AppError::Hotkey(e.to_string()))?
+            self.manager
                 .unregister(parsed)
                 .map_err(|e| AppError::Hotkey(e.to_string()))?;
         }
@@ -119,6 +136,8 @@ fn parse_hotkey(input: &str) -> Result<HotKey> {
                     'X' => Some(Code::KeyX),
                     'Y' => Some(Code::KeyY),
                     'Z' => Some(Code::KeyZ),
+                    ';' => Some(Code::Semicolon),
+                    ':' => Some(Code::Semicolon),
                     _ => None,
                 };
             }
@@ -152,6 +171,8 @@ fn parse_hotkey_parts(input: &str) -> Result<(Modifiers, Code)> {
                     'A' => Some(Code::KeyA),
                     'J' => Some(Code::KeyJ),
                     'K' => Some(Code::KeyK),
+                    ';' => Some(Code::Semicolon),
+                    ':' => Some(Code::Semicolon),
                     _ => None,
                 };
             }
@@ -210,5 +231,13 @@ mod tests {
         // Single key without modifiers should still work
         let result = parse_hotkey("J");
         assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_parse_hotkey_semicolon() {
+        let (mods, key) = parse_hotkey_parts("Cmd+Shift+;").unwrap();
+        assert!(mods.contains(Modifiers::META));
+        assert!(mods.contains(Modifiers::SHIFT));
+        assert_eq!(key, Code::Semicolon);
     }
 }
