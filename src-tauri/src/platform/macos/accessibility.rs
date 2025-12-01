@@ -450,13 +450,14 @@ pub fn has_press_action(element: AXUIElementRef) -> bool {
 }
 
     /// Verifica si el elemento está oculto (AXHidden == true)
-    pub fn is_hidden(element: AXUIElementRef) -> bool {
-        if let Ok(hidden_ptr) = copy_attribute_value(element, K_AX_HIDDEN_ATTRIBUTE) {
-            let cf_bool = unsafe { CFBoolean::wrap_under_get_rule(hidden_ptr as *const _) };
-            return cf_bool.as_concrete_TypeRef() == CFBoolean::true_value().as_concrete_TypeRef();
-        }
-        false
+pub fn is_hidden(element: AXUIElementRef) -> bool {
+    if let Ok(hidden_ptr) = copy_attribute_value(element, K_AX_HIDDEN_ATTRIBUTE) {
+        // wrap_under_create_rule toma ownership; se liberará al salir de scope
+        let cf_bool = unsafe { CFBoolean::wrap_under_create_rule(hidden_ptr as *const _) };
+        return cf_bool.as_concrete_TypeRef() == CFBoolean::true_value().as_concrete_TypeRef();
     }
+    false
+}
 
 /// Recorre el árbol de accesibilidad usando BFS limitada
 /// Devuelve elementos clickeables encontrados
